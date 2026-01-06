@@ -2,33 +2,38 @@ import customtkinter as ctk
 from tkinter import ttk, messagebox
 import tkinter as tk
 import sqlite3
-import hashlib # 用來加密密碼
+import hashlib
 from datetime import datetime
 
-# --- 設定外觀 ---
-ctk.set_appearance_mode("Dark")
+# --- 設定全域外觀 ---
+ctk.set_appearance_mode("Light") # 改成淺色模式比較像網頁
 ctk.set_default_color_theme("blue")
+
+# 定義 Redmine 風格顏色
+REDMINE_BLUE = "#3E5B76"
+REDMINE_LIGHT_BLUE = "#628DB6"
+HEADER_TEXT_COLOR = "white"
 
 class RootApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         
         # 視窗基本設定
-        self.title("研發知識庫系統 (Knowledge Database)")
-        self.geometry("1100x700")
+        self.title("MTD_Workplace - Redmine Style")
+        self.geometry("1200x800")
         
-        # 初始化資料庫 (含自動升級)
+        # 初始化資料庫
         self.init_db()
-        self.current_user = None # 紀錄現在是誰登入
+        self.current_user = None 
 
-        # 這裡決定一開始顯示什麼畫面
+        # 顯示登入畫面
         self.show_login_screen()
 
     def init_db(self):
         self.conn = sqlite3.connect("redmine_lite.db")
         self.cursor = self.conn.cursor()
         
-        # 1. 建立使用者表 (Users)
+        # 1. 使用者表
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
@@ -36,64 +41,60 @@ class RootApp(ctk.CTk):
             )
         ''')
         
-        # 2. 建立 Issues 表
+        # 2. Issues 表 (擴充欄位以符合截圖)
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS issues (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tracker TEXT,       -- Support / Bug
                 subject TEXT,
-                status TEXT,
+                status TEXT,        -- New / In Progress...
                 priority TEXT,
+                assignee TEXT,      -- 指派給誰
                 description TEXT,
+                start_date TEXT,
+                due_date TEXT,
+                percent_done INTEGER,
+                estimated_hours REAL,
                 created_at TEXT,
-                created_by TEXT  -- 新增：紀錄是誰建立的
+                created_by TEXT
             )
         ''')
         
-        # 3. 建立 Wiki 表
+        # 3. Wiki 表
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS wiki (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT UNIQUE,
                 content TEXT,
-                updated_by TEXT -- 新增：紀錄最後修改人
+                updated_by TEXT
             )
         ''')
 
-        # --- 資料庫遷移 (Migration) ---
-        # 怕你之前的資料庫沒有 create_by 欄位，這裡檢查並自動補上，以免報錯
-        try:
-            self.cursor.execute("ALTER TABLE issues ADD COLUMN created_by TEXT")
-        except sqlite3.OperationalError:
-            pass # 代表欄位已經存在，忽略錯誤
-            
-        try:
-            self.cursor.execute("ALTER TABLE wiki ADD COLUMN updated_by TEXT")
-        except sqlite3.OperationalError:
-            pass 
-
+        # 自動遷移資料庫 (防止舊資料報錯)
+        columns_to_add = [
+            ("tracker", "TEXT"), ("assignee", "TEXT"), ("start_date", "TEXT"),
+            ("due_date", "TEXT"), ("percent_done", "INTEGER"), ("estimated_hours", "REAL"),
+            ("created_by", "TEXT")
+        ]
+        for col_name, col_type in columns_to_add:
+            try:
+                self.cursor.execute(f"ALTER TABLE issues ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass 
+        
         self.conn.commit()
 
-    # ============================
-    # 畫面路由 (Router)
-    # ============================
     def show_login_screen(self):
-        # 清空視窗上的舊東西
-        for widget in self.winfo_children():
-            widget.destroy()
-            
+        for widget in self.winfo_children(): widget.destroy()
         LoginFrame(self, self.conn)
 
     def show_main_app(self, username):
-        # 清空視窗上的舊東西
-        for widget in self.winfo_children():
-            widget.destroy()
-            
+        for widget in self.winfo_children(): widget.destroy()
         self.current_user = username
         MainApp(self, self.conn, self.current_user)
 
-
 # ============================
-# 1. 登入畫面 (Login Frame)
+# 1. 登入畫面 (Login)
 # ============================
 class LoginFrame(ctk.CTkFrame):
     def __init__(self, master, db_conn):
@@ -101,77 +102,63 @@ class LoginFrame(ctk.CTkFrame):
         self.master = master
         self.conn = db_conn
         self.cursor = self.conn.cursor()
-        
         self.pack(fill="both", expand=True)
         
-        # 介面置中容器
-        self.center_frame = ctk.CTkFrame(self, width=400, height=500)
-        self.center_frame.place(relx=0.5, rely=0.5, anchor="center")
+        # 背景色
+        self.configure(fg_color="#f0f0f0")
+
+        center_frame = ctk.CTkFrame(self, width=400, height=450, fg_color="white", corner_radius=10)
+        center_frame.place(relx=0.5, rely=0.5, anchor="center")
         
-        # 標題與作者
-        ctk.CTkLabel(self.center_frame, text="Knowledge Database", font=("Arial", 32, "bold")).pack(pady=(50, 10))
-        ctk.CTkLabel(self.center_frame, text="Author: Charlie", font=("Arial", 14), text_color="gray").pack(pady=(0, 40))
+        ctk.CTkLabel(center_frame, text="MTD_Workplace", font=("Arial", 28, "bold"), text_color=REDMINE_BLUE).pack(pady=(50, 10))
+        ctk.CTkLabel(center_frame, text="Login to your account", font=("Arial", 14), text_color="gray").pack(pady=(0, 30))
         
-        # 輸入框
-        self.entry_user = ctk.CTkEntry(self.center_frame, width=250, placeholder_text="使用者名稱 (Username)")
+        self.entry_user = ctk.CTkEntry(center_frame, width=280, height=40, placeholder_text="Username")
         self.entry_user.pack(pady=10)
         
-        self.entry_pass = ctk.CTkEntry(self.center_frame, width=250, placeholder_text="密碼 (Password)", show="*")
+        self.entry_pass = ctk.CTkEntry(center_frame, width=280, height=40, placeholder_text="Password", show="*")
         self.entry_pass.pack(pady=10)
         
-        # 按鈕
-        ctk.CTkButton(self.center_frame, text="登入 (Login)", command=self.login, width=250, height=40).pack(pady=20)
-        ctk.CTkButton(self.center_frame, text="建立新帳號 (Register)", command=self.register_popup, width=250, fg_color="transparent", border_width=1).pack(pady=10)
+        ctk.CTkButton(center_frame, text="Login", command=self.login, width=280, height=40, fg_color=REDMINE_BLUE, hover_color=REDMINE_LIGHT_BLUE).pack(pady=20)
+        ctk.CTkButton(center_frame, text="Register", command=self.register_popup, width=280, fg_color="transparent", text_color=REDMINE_BLUE, border_width=1, border_color=REDMINE_BLUE).pack(pady=5)
 
     def login(self):
         user = self.entry_user.get()
         pwd = self.entry_pass.get()
-        
-        # 簡單加密檢查 (SHA256)
         hashed_pwd = hashlib.sha256(pwd.encode()).hexdigest()
         
         self.cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (user, hashed_pwd))
         if self.cursor.fetchone():
-            # 登入成功，切換到主畫面
             self.master.show_main_app(user)
         else:
-            messagebox.showerror("錯誤", "帳號或密碼錯誤！")
+            messagebox.showerror("Error", "Invalid username or password")
 
     def register_popup(self):
-        # 彈出註冊視窗
         dialog = ctk.CTkToplevel(self)
-        dialog.geometry("300x300")
-        dialog.title("註冊")
+        dialog.geometry("300x350")
+        dialog.title("Register")
+        dialog.transient(self) # 讓視窗浮在上面
         
-        ctk.CTkLabel(dialog, text="設定使用者名稱").pack(pady=10)
-        new_user = ctk.CTkEntry(dialog)
-        new_user.pack(pady=5)
-        
-        ctk.CTkLabel(dialog, text="設定密碼").pack(pady=10)
-        new_pass = ctk.CTkEntry(dialog, show="*")
-        new_pass.pack(pady=5)
+        ctk.CTkLabel(dialog, text="Create Account", font=("Arial", 18, "bold")).pack(pady=20)
+        new_user = ctk.CTkEntry(dialog, placeholder_text="Username")
+        new_user.pack(pady=10)
+        new_pass = ctk.CTkEntry(dialog, placeholder_text="Password", show="*")
+        new_pass.pack(pady=10)
         
         def save_user():
             u = new_user.get()
             p = new_pass.get()
-            if not u or not p:
-                return
-            
-            # 檢查帳號是否重複
+            if not u or not p: return
             self.cursor.execute("SELECT * FROM users WHERE username=?", (u,))
             if self.cursor.fetchone():
-                messagebox.showerror("錯誤", "此帳號已存在")
+                messagebox.showerror("Error", "User already exists")
                 return
-            
-            # 存入資料庫
-            hashed_p = hashlib.sha256(p.encode()).hexdigest()
-            self.cursor.execute("INSERT INTO users VALUES (?, ?)", (u, hashed_p))
+            self.cursor.execute("INSERT INTO users VALUES (?, ?)", (u, hashlib.sha256(p.encode()).hexdigest()))
             self.conn.commit()
-            messagebox.showinfo("成功", "帳號建立成功，請登入！")
+            messagebox.showinfo("Success", "Account created!")
             dialog.destroy()
             
-        ctk.CTkButton(dialog, text="確認建立", command=save_user).pack(pady=20)
-
+        ctk.CTkButton(dialog, text="Sign Up", command=save_user, fg_color=REDMINE_BLUE).pack(pady=20)
 
 # ============================
 # 2. 主程式畫面 (Main App)
@@ -183,175 +170,329 @@ class MainApp(ctk.CTkFrame):
         self.conn = db_conn
         self.cursor = self.conn.cursor()
         self.current_user = current_user
-        
         self.pack(fill="both", expand=True)
+        self.configure(fg_color="#ffffff")
 
-        # --- 佈局 ---
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-
-        # 左側選單
-        self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
-        self.sidebar.grid(row=0, column=0, sticky="nsew")
-
-        # 顯示歡迎詞
-        ctk.CTkLabel(self.sidebar, text=f"Welcome,\n{self.current_user}", font=("Arial", 18, "bold")).pack(pady=30)
+        # --- Top Header (藍色頂部) ---
+        self.header = ctk.CTkFrame(self, height=60, corner_radius=0, fg_color=REDMINE_BLUE)
+        self.header.pack(fill="x", side="top")
         
-        self.btn_issues = ctk.CTkButton(self.sidebar, text="📋 問題追蹤 (Issues)", command=self.show_issues)
-        self.btn_issues.pack(pady=10, padx=20, fill="x")
+        # 標題
+        ctk.CTkLabel(self.header, text="MTD_Workplace", font=("Arial", 24, "bold"), text_color="white").pack(side="left", padx=20, pady=10)
         
-        self.btn_wiki = ctk.CTkButton(self.sidebar, text="📚 知識庫 (Wiki)", command=self.show_wiki)
-        self.btn_wiki.pack(pady=10, padx=20, fill="x")
+        # 右上角資訊
+        user_info = f"Logged in as {self.current_user} | My account | Sign out"
+        logout_btn = ctk.CTkButton(self.header, text="Sign out", width=60, fg_color="transparent", text_color="white", command=self.master.show_login_screen)
+        logout_btn.pack(side="right", padx=10)
+        ctk.CTkLabel(self.header, text=f"Logged in as {self.current_user}", text_color="white").pack(side="right", padx=5)
 
-        # 登出按鈕
-        ctk.CTkButton(self.sidebar, text="🚪 登出", command=self.master.show_login_screen, fg_color="#c0392b").pack(side="bottom", pady=20, padx=20, fill="x")
+        # --- Menu Tabs (導航列) ---
+        self.menu_frame = ctk.CTkFrame(self, height=40, corner_radius=0, fg_color=REDMINE_LIGHT_BLUE)
+        self.menu_frame.pack(fill="x", side="top")
+        
+        self.tabs = ["Overview", "Activity", "Issues", "Wiki", "Files", "Settings"]
+        for tab in self.tabs:
+            btn = ctk.CTkButton(self.menu_frame, text=tab, width=80, fg_color="transparent", text_color="white", corner_radius=0, hover_color=REDMINE_BLUE,
+                                command=lambda t=tab: self.switch_tab(t))
+            btn.pack(side="left", padx=2)
 
-        # 右側內容區
+        # --- 內容區 ---
         self.content_area = ctk.CTkFrame(self, fg_color="transparent")
-        self.content_area.grid(row=0, column=1, sticky="nsew")
+        self.content_area.pack(fill="both", expand=True, padx=20, pady=20)
         
-        self.frame_issues = None
-        self.frame_wiki = None
+        self.current_frame = None
+        self.switch_tab("Issues") # 預設顯示 Issues
+
+    def switch_tab(self, tab_name):
+        if self.current_frame:
+            self.current_frame.destroy()
         
-        # 預設顯示 Issues
-        self.show_issues()
+        if tab_name == "Issues":
+            self.current_frame = IssuesView(self.content_area, self.conn, self.current_user)
+        elif tab_name == "Wiki":
+            self.current_frame = WikiView(self.content_area, self.conn, self.current_user)
+        else:
+            self.current_frame = ctk.CTkLabel(self.content_area, text=f"{tab_name} Page (Under Construction)", font=("Arial", 20))
+            self.current_frame.pack(pady=50)
 
-    def show_issues(self):
-        if self.frame_wiki: self.frame_wiki.pack_forget()
-        if not self.frame_issues: self.setup_issues_ui()
-        self.frame_issues.pack(fill="both", expand=True)
-        self.refresh_issue_list()
+# ============================
+# 3. Issues 列表視圖
+# ============================
+class IssuesView(ctk.CTkFrame):
+    def __init__(self, master, conn, current_user):
+        super().__init__(master, fg_color="transparent")
+        self.conn = conn
+        self.current_user = current_user
+        self.pack(fill="both", expand=True)
+        
+        # 標題列
+        top_bar = ctk.CTkFrame(self, fg_color="transparent")
+        top_bar.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(top_bar, text="Issues", font=("Arial", 24, "bold"), text_color="#333").pack(side="left")
+        
+        # 綠色 New Issue 按鈕
+        ctk.CTkButton(top_bar, text="➕ New issue", fg_color="#4CAF50", width=100, command=self.open_new_issue_window).pack(side="right")
 
-    def show_wiki(self):
-        if self.frame_issues: self.frame_issues.pack_forget()
-        if not self.frame_wiki: self.setup_wiki_ui()
-        self.frame_wiki.pack(fill="both", expand=True)
-        self.refresh_wiki_list()
+        # 篩選器 (裝飾用)
+        filter_frame = ctk.CTkFrame(self, fg_color="#f5f5f5", border_width=1, border_color="#ddd")
+        filter_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(filter_frame, text="☑ Status: open", text_color="black").pack(side="left", padx=10, pady=5)
 
-    # --- Issues UI ---
-    def setup_issues_ui(self):
-        self.frame_issues = ctk.CTkFrame(self.content_area, fg_color="transparent")
-        ctk.CTkLabel(self.frame_issues, text="問題追蹤清單", font=("Arial", 20, "bold")).pack(pady=10, padx=20, anchor="w")
-
-        # Treeview
+        # --- Treeview 表格 ---
+        # 定義欄位符合截圖
+        self.columns = ("ID", "Tracker", "Status", "Subject", "Assignee", "% Done", "Created")
+        
         style = ttk.Style()
         style.theme_use("clam")
-        style.configure("Treeview", background="#2b2b2b", foreground="white", fieldbackground="#2b2b2b", borderwidth=0)
-        style.map('Treeview', background=[('selected', '#1f538d')])
+        style.configure("Treeview", background="white", foreground="black", rowheight=30, font=("Arial", 11))
+        style.configure("Treeview.Heading", font=("Arial", 11, "bold"), background="#eee")
+        style.map('Treeview', background=[('selected', '#dcebf5')], foreground=[('selected', 'black')])
 
-        cols = ("ID", "狀態", "優先級", "主旨", "建立者", "時間")
-        self.tree_issues = ttk.Treeview(self.frame_issues, columns=cols, show="headings", height=8)
+        self.tree = ttk.Treeview(self, columns=self.columns, show="headings", height=20)
         
-        for c in cols: self.tree_issues.heading(c, text=c)
-        self.tree_issues.column("ID", width=40); self.tree_issues.column("狀態", width=80)
-        self.tree_issues.column("建立者", width=100); self.tree_issues.column("主旨", width=300)
+        # 設定標題
+        self.tree.heading("ID", text="#")
+        self.tree.heading("Tracker", text="Tracker")
+        self.tree.heading("Status", text="Status")
+        self.tree.heading("Subject", text="Subject")
+        self.tree.heading("Assignee", text="Assignee")
+        self.tree.heading("% Done", text="% Done")
+        self.tree.heading("Created", text="Created")
         
-        self.tree_issues.pack(padx=20, fill="x")
-        self.tree_issues.bind("<<TreeviewSelect>>", self.on_issue_select)
+        # 設定寬度
+        self.tree.column("ID", width=50, anchor="center")
+        self.tree.column("Tracker", width=80)
+        self.tree.column("Status", width=80)
+        self.tree.column("Subject", width=400)
+        self.tree.column("Assignee", width=120)
+        self.tree.column("% Done", width=100)
+        self.tree.column("Created", width=120)
 
-        # 編輯區
-        self.detail_frame = ctk.CTkFrame(self.frame_issues)
-        self.detail_frame.pack(pady=10, padx=20, fill="both", expand=True)
+        self.tree.pack(fill="both", expand=True)
+        self.refresh_data()
+
+    def refresh_data(self):
+        for i in self.tree.get_children(): self.tree.delete(i)
+        cur = self.conn.cursor()
+        cur.execute("SELECT id, tracker, status, subject, assignee, percent_done, created_at FROM issues ORDER BY id DESC")
+        for row in cur.fetchall():
+            # 加上 % 符號
+            percent = f"{row[5]}%" if row[5] is not None else "0%"
+            # 插入資料
+            self.tree.insert("", "end", values=(row[0], row[1], row[2], row[3], row[4], percent, row[6]))
+
+    def open_new_issue_window(self):
+        # 開啟彈出視窗
+        NewIssueWindow(self.master, self.conn, self.current_user, callback=self.refresh_data)
+
+# ============================
+# 4. 新增 Issue 彈出視窗 (重點修改)
+# ============================
+class NewIssueWindow(ctk.CTkToplevel):
+    def __init__(self, master, conn, current_user, callback):
+        super().__init__(master)
+        self.conn = conn
+        self.current_user = current_user
+        self.callback = callback
         
-        f1 = ctk.CTkFrame(self.detail_frame, fg_color="transparent")
-        f1.pack(fill="x", pady=5)
+        self.title("New issue - MTD_Workplace")
+        self.geometry("900x750")
+        self.configure(fg_color="#f8f8f8")
         
-        self.entry_subject = ctk.CTkEntry(f1, placeholder_text="主旨", width=300); self.entry_subject.pack(side="left", padx=5)
-        self.combo_status = ctk.CTkComboBox(f1, values=["New", "Processing", "Done"], width=100); self.combo_status.pack(side="left", padx=5)
-        self.combo_priority = ctk.CTkComboBox(f1, values=["Normal", "Urgent"], width=100); self.combo_priority.pack(side="left", padx=5)
-
-        self.text_desc = ctk.CTkTextbox(self.detail_frame, height=100)
-        self.text_desc.pack(fill="both", expand=True, padx=5, pady=5)
-
-        ctk.CTkButton(self.detail_frame, text="新增 Issue", command=self.add_issue, fg_color="green").pack(side="right", padx=10, pady=5)
-
-    def refresh_issue_list(self):
-        for i in self.tree_issues.get_children(): self.tree_issues.delete(i)
-        self.cursor.execute("SELECT id, status, priority, subject, created_by, created_at, description FROM issues ORDER BY id DESC")
-        for row in self.cursor.fetchall():
-            # row: (id, status, priority, subject, created_by, created_at, desc)
-            self.tree_issues.insert("", "end", values=(row[0], row[1], row[2], row[3], row[4], row[5]))
-
-    def add_issue(self):
-        sub = self.entry_subject.get()
-        if not sub: return
+        # 讓視窗置頂
+        self.transient(master)
         
-        # 這裡會把 self.current_user (登入者) 寫進資料庫
-        self.cursor.execute("INSERT INTO issues (subject, status, priority, description, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)",
-                            (sub, self.combo_status.get(), self.combo_priority.get(), self.text_desc.get("0.0", "end"), 
-                             datetime.now().strftime("%Y-%m-%d %H:%M"), self.current_user))
+        # 標題
+        ctk.CTkLabel(self, text="New issue", font=("Arial", 22, "bold"), text_color="#333").pack(anchor="w", padx=20, pady=15)
+        
+        # --- 表單區域 ---
+        form_frame = ctk.CTkFrame(self, fg_color="#fff", border_width=1, border_color="#ddd")
+        form_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        
+        # 欄位佈局 Grid
+        # Tracker
+        ctk.CTkLabel(form_frame, text="Tracker *", text_color="#333").grid(row=0, column=0, sticky="e", padx=10, pady=10)
+        self.tracker_cb = ctk.CTkComboBox(form_frame, values=["Support", "Bug", "Feature"])
+        self.tracker_cb.grid(row=0, column=1, sticky="w", padx=10)
+        
+        # Subject
+        ctk.CTkLabel(form_frame, text="Subject *", text_color="#333").grid(row=1, column=0, sticky="e", padx=10, pady=10)
+        self.subject_entry = ctk.CTkEntry(form_frame, width=500)
+        self.subject_entry.grid(row=1, column=1, columnspan=3, sticky="w", padx=10)
+        
+        # Description
+        ctk.CTkLabel(form_frame, text="Description", text_color="#333").grid(row=2, column=0, sticky="ne", padx=10, pady=10)
+        self.desc_text = ctk.CTkTextbox(form_frame, width=500, height=150)
+        self.desc_text.grid(row=2, column=1, columnspan=3, sticky="w", padx=10, pady=10)
+        
+        # --- 下半部屬性 (兩欄式) ---
+        # Status
+        ctk.CTkLabel(form_frame, text="Status *", text_color="#333").grid(row=3, column=0, sticky="e", padx=10, pady=5)
+        self.status_cb = ctk.CTkComboBox(form_frame, values=["New", "In Progress", "Resolved", "Closed"])
+        self.status_cb.grid(row=3, column=1, sticky="w", padx=10)
+        
+        # Start Date
+        ctk.CTkLabel(form_frame, text="Start date", text_color="#333").grid(row=3, column=2, sticky="e", padx=10)
+        self.start_date_entry = ctk.CTkEntry(form_frame, placeholder_text="YYYY-MM-DD")
+        self.start_date_entry.grid(row=3, column=3, sticky="w", padx=10)
+        
+        # Priority
+        ctk.CTkLabel(form_frame, text="Priority *", text_color="#333").grid(row=4, column=0, sticky="e", padx=10, pady=5)
+        self.priority_cb = ctk.CTkComboBox(form_frame, values=["Normal", "High", "Urgent"])
+        self.priority_cb.grid(row=4, column=1, sticky="w", padx=10)
+        
+        # Due Date
+        ctk.CTkLabel(form_frame, text="Due date", text_color="#333").grid(row=4, column=2, sticky="e", padx=10)
+        self.due_date_entry = ctk.CTkEntry(form_frame, placeholder_text="YYYY-MM-DD")
+        self.due_date_entry.grid(row=4, column=3, sticky="w", padx=10)
+        
+        # Assignee
+        ctk.CTkLabel(form_frame, text="Assignee", text_color="#333").grid(row=5, column=0, sticky="e", padx=10, pady=5)
+        # 這裡撈取所有使用者
+        users = [u[0] for u in self.conn.cursor().execute("SELECT username FROM users").fetchall()]
+        self.assignee_cb = ctk.CTkComboBox(form_frame, values=users)
+        self.assignee_cb.set(self.current_user) # 預設自己
+        self.assignee_cb.grid(row=5, column=1, sticky="w", padx=10)
+        
+        # % Done
+        ctk.CTkLabel(form_frame, text="% Done", text_color="#333").grid(row=5, column=2, sticky="e", padx=10)
+        self.percent_cb = ctk.CTkComboBox(form_frame, values=["0", "10", "20", "50", "80", "100"])
+        self.percent_cb.grid(row=5, column=3, sticky="w", padx=10)
+
+        # Estimated Time
+        ctk.CTkLabel(form_frame, text="Estimated time", text_color="#333").grid(row=6, column=2, sticky="e", padx=10)
+        self.hours_entry = ctk.CTkEntry(form_frame, placeholder_text="Hours")
+        self.hours_entry.grid(row=6, column=3, sticky="w", padx=10)
+        
+        # 底部按鈕
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(pady=20)
+        ctk.CTkButton(btn_frame, text="Create", command=self.save_issue, fg_color=REDMINE_BLUE).pack(side="left", padx=10)
+        ctk.CTkButton(btn_frame, text="Create and continue", command=lambda: self.save_issue(close=False), fg_color="transparent", border_width=1, border_color="#ccc", text_color="#333").pack(side="left", padx=10)
+
+    def save_issue(self, close=True):
+        tracker = self.tracker_cb.get()
+        subject = self.subject_entry.get()
+        if not subject:
+            messagebox.showwarning("Warning", "Subject cannot be empty")
+            return
+            
+        data = (
+            tracker,
+            subject,
+            self.status_cb.get(),
+            self.priority_cb.get(),
+            self.assignee_cb.get(),
+            self.desc_text.get("0.0", "end"),
+            self.start_date_entry.get(),
+            self.due_date_entry.get(),
+            int(self.percent_cb.get()),
+            self.hours_entry.get() or 0,
+            datetime.now().strftime("%Y-%m-%d %H:%M"),
+            self.current_user
+        )
+        
+        self.conn.cursor().execute('''
+            INSERT INTO issues (tracker, subject, status, priority, assignee, description, 
+            start_date, due_date, percent_done, estimated_hours, created_at, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', data)
         self.conn.commit()
-        self.refresh_issue_list()
-        self.entry_subject.delete(0, "end"); self.text_desc.delete("0.0", "end")
-
-    def on_issue_select(self, event):
-        sel = self.tree_issues.selection()
-        if sel:
-            item = self.tree_issues.item(sel[0])
-            idx = item['values'][0]
-            self.cursor.execute("SELECT * FROM issues WHERE id=?", (idx,))
-            data = self.cursor.fetchone()
-            if data:
-                # 簡單回填 (實際專案可以做得更細)
-                self.text_desc.delete("0.0", "end")
-                self.text_desc.insert("0.0", f"建立者: {data[6]}\n內容: {data[4]}")
-
-    # --- Wiki UI ---
-    def setup_wiki_ui(self):
-        self.frame_wiki = ctk.CTkFrame(self.content_area, fg_color="transparent")
-        ctk.CTkLabel(self.frame_wiki, text="Wiki 知識庫", font=("Arial", 20, "bold")).pack(pady=10, padx=20, anchor="w")
         
-        paned = tk.PanedWindow(self.frame_wiki, orient="horizontal", bg="#2b2b2b")
-        paned.pack(fill="both", expand=True, padx=20, pady=10)
+        # 通知主視窗更新
+        self.callback()
         
-        # Left List
-        self.wiki_list = tk.Listbox(paned, bg="#333", fg="white", borderwidth=0)
-        paned.add(self.wiki_list, width=200)
-        self.wiki_list.bind("<<ListboxSelect>>", self.load_wiki)
-        
-        # Right Edit
-        right = ctk.CTkFrame(paned)
-        paned.add(right)
-        
-        f_top = ctk.CTkFrame(right)
-        f_top.pack(fill="x")
-        self.entry_wiki_title = ctk.CTkEntry(f_top, placeholder_text="頁面標題")
-        self.entry_wiki_title.pack(side="left", fill="x", expand=True, padx=5)
-        ctk.CTkButton(f_top, text="儲存 / 新增", command=self.save_wiki).pack(side="right", padx=5)
-        
-        self.text_wiki = ctk.CTkTextbox(right)
-        self.text_wiki.pack(fill="both", expand=True, pady=5)
-
-    def refresh_wiki_list(self):
-        self.wiki_list.delete(0, "end")
-        self.cursor.execute("SELECT title FROM wiki")
-        for r in self.cursor.fetchall(): self.wiki_list.insert("end", r[0])
-
-    def save_wiki(self):
-        title = self.entry_wiki_title.get()
-        content = self.text_wiki.get("0.0", "end")
-        if not title: return
-        
-        # 嘗試更新，如果沒有就新增 (Upsert 邏輯)
-        self.cursor.execute("SELECT * FROM wiki WHERE title=?", (title,))
-        if self.cursor.fetchone():
-            self.cursor.execute("UPDATE wiki SET content=?, updated_by=? WHERE title=?", (content, self.current_user, title))
+        if close:
+            self.destroy()
         else:
-            self.cursor.execute("INSERT INTO wiki (title, content, updated_by) VALUES (?, ?, ?)", (title, content, self.current_user))
-        self.conn.commit()
-        messagebox.showinfo("成功", "Wiki 已儲存")
-        self.refresh_wiki_list()
+            # 清空欄位繼續新增
+            self.subject_entry.delete(0, "end")
+            self.desc_text.delete("0.0", "end")
+            messagebox.showinfo("Created", "Issue created successfully.")
 
-    def load_wiki(self, event):
-        sel = self.wiki_list.curselection()
-        if sel:
-            title = self.wiki_list.get(sel[0])
-            self.cursor.execute("SELECT * FROM wiki WHERE title=?", (title,))
-            data = self.cursor.fetchone() # (id, title, content, updated_by)
-            if data:
-                self.entry_wiki_title.delete(0, "end"); self.entry_wiki_title.insert(0, data[1])
-                self.text_wiki.delete("0.0", "end"); self.text_wiki.insert("0.0", data[2])
+# ============================
+# 5. Wiki 視圖 (閱讀模式)
+# ============================
+class WikiView(ctk.CTkFrame):
+    def __init__(self, master, conn, current_user):
+        super().__init__(master, fg_color="transparent")
+        self.conn = conn
+        self.current_user = current_user
+        self.pack(fill="both", expand=True)
+        
+        # 頂部工具列
+        top_bar = ctk.CTkFrame(self, fg_color="transparent")
+        top_bar.pack(fill="x", pady=(0, 10))
+        
+        ctk.CTkLabel(top_bar, text="AE Tool", font=("Arial", 24, "bold"), text_color="#333").pack(side="left")
+        
+        # 工具按鈕 (New, Edit, Watch...)
+        tools = ["New wiki page", "Edit", "Watch", "Lock", "Rename", "Delete", "History"]
+        for t in tools:
+            icon = "✏️" if t == "Edit" else "➕" if t.startswith("New") else ""
+            btn = ctk.CTkButton(top_bar, text=f"{icon} {t}", width=60, fg_color="transparent", text_color="#555", hover_color="#eee",
+                                command=lambda x=t: self.handle_tool(x))
+            btn.pack(side="left", padx=2)
 
+        # 內容區 (Split View: 左邊內容, 右邊索引)
+        split_frame = ctk.CTkFrame(self, fg_color="transparent")
+        split_frame.pack(fill="both", expand=True)
+        
+        # 左：內容顯示 (模擬網頁文字)
+        self.content_text = ctk.CTkTextbox(split_frame, width=800, fg_color="white", text_color="#333", font=("Arial", 14))
+        self.content_text.pack(side="left", fill="both", expand=True, padx=(0, 20))
+        
+        # 右：索引 (Sidebar)
+        sidebar = ctk.CTkFrame(split_frame, width=200, fg_color="#fcfcfc")
+        sidebar.pack(side="right", fill="y")
+        ctk.CTkLabel(sidebar, text="Wiki", font=("Arial", 14, "bold"), text_color="#333").pack(anchor="w", padx=10, pady=10)
+        
+        links = ["Start page", "Index by title", "Index by date"]
+        for l in links:
+            ctk.CTkLabel(sidebar, text=l, text_color=REDMINE_BLUE, cursor="hand2").pack(anchor="w", padx=10, pady=2)
+            
+        self.load_wiki_content()
+
+    def load_wiki_content(self):
+        # 預設載入第一篇 Wiki，如果沒有就顯示範例
+        cur = self.conn.cursor()
+        cur.execute("SELECT content FROM wiki LIMIT 1")
+        row = cur.fetchone()
+        
+        self.content_text.configure(state="normal")
+        if row:
+            self.content_text.insert("0.0", row[0])
+        else:
+            # 顯示類似截圖的範例文字
+            example_text = """Description:
+In this page will list most of the tool that AE team need.
+Adding to be continued....... be maintained by: Charlie......2024.06.05
+
+--------------------------------------------------------------------------------
+Formal Working Flow:
+[Issue Flow]
+    • Item for KUS Group / Product Introduction
+
+1. Presentation Material
+................for all the materials as business promotion.
+
+--------------------------------------------------------------------------------
+    • Item for Service Tool
+
+1. Service Tool Execution
+................for Service Tool guiding including connect setting.
+2. Modify White Box Firmware
+................for tutorial of how to use service tool to modify white box firmware vesrion.
+"""
+            self.content_text.insert("0.0", example_text)
+        self.content_text.configure(state="disabled") # 閱讀模式不可編輯
+
+    def handle_tool(self, tool_name):
+        if tool_name == "Edit":
+            # 切換成可編輯模式 (簡單實作)
+            self.content_text.configure(state="normal")
+            self.content_text.focus()
+            messagebox.showinfo("Edit Mode", "You can now edit the text directly. (Save feature to be added)")
 
 if __name__ == "__main__":
     app = RootApp()
