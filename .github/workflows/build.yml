@@ -25,7 +25,7 @@ jobs:
         pyinstaller --noconsole --onefile --name MiniRedmine --collect-all customtkinter app.py
 
     - name: 上傳 EXE 檔案
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: MiniRedmine-App
         path: dist/MiniRedmine.exe
